@@ -7,7 +7,7 @@ export class RegisterDTO {
         this.password = data.password;
     }
 
-    static fromRequest(data: any): RegisterDTO {
+    static fromRequest(data: { email: string; password: string }): RegisterDTO {
         return new RegisterDTO({
             email: data.email,
             password: data.password
