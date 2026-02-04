@@ -16,3 +16,16 @@ export const registerSchema = z.object({
             .regex(/[^A-Za-z0-9]/, { message: 'Password must contain at least one special character' }),
     }),
 });
+
+export const loginSchema = z.object({
+    body: z.object({
+        email: z
+            .email({ message: 'Invalid email' })
+            .min(1, { message: 'Email is required' })
+            .toLowerCase()
+            .trim(),
+        password: z
+            .string()
+            .min(1, { message: 'Password is required' }),
+    }),
+});
