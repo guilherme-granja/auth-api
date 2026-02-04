@@ -1,6 +1,7 @@
 import { UserRepository } from "../repositories/UserRepository";
 import { HashUtils } from "../utils/hash";
 import { RegisterDTO } from "../dtos/auth/RegisterDTO";
+import { UserAlreadyExistsException } from "../exceptions/auth/UserAlreadyExistsException";
 
 export class AuthService {
     private userRepository: UserRepository;
@@ -15,7 +16,7 @@ export class AuthService {
         );
 
         if (existingUser) {
-            throw new Error('User with this email already exists')
+            throw new UserAlreadyExistsException();
         }
 
         const hashedPassword = await HashUtils.hash(dto.password);

@@ -1,18 +1,21 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
+import { HttpException } from "../exceptions/HttpException";
 
 export const errorHandler = (
     error: Error,
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ): void => {
     console.error('Error:', error);
 
-    // Handle known errors
-    if (error.message === 'User with this email already exists') {
-        res.status(409).json({
+    if (error instanceof HttpException) {
+        res.status(error.statusCode).json({
             success: false,
             message: error.message,
+            ...(error.errors && { errors: error.errors }),
         });
+
         return;
     }
 
