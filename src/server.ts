@@ -12,8 +12,8 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful Shutdown - disconnect Prisma when the app shuts down
-process.on('SIGINT', async () => {
-    console.log('🔴 SIGINT signal received: closing HTTP server');
+const onServerShutdown = async () => {
+    console.log('🔴 SIGINT|SIGTERM signal received: closing HTTP server');
 
     await prisma.$disconnect();
 
@@ -21,15 +21,7 @@ process.on('SIGINT', async () => {
         console.log('👋 HTTP server closed');
         process.exit(0);
     });
-});
+}
 
-process.on('SIGTERM', async () => {
-    console.log('🔴 SIGTERM signal received: closing HTTP server');
-
-    await prisma.$disconnect();
-
-    server.close(() => {
-        console.log('👋 HTTP server closed');
-        process.exit(0);
-    });
-});
+process.on('SIGINT', onServerShutdown);
+process.on('SIGTERM', onServerShutdown);
