@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/AuthService';
 import { RegisterDTO } from '../dtos/auth/RegisterDTO';
-import { RegisterInput } from '../validators/authSchemas';
+import { registerSchema } from '../validators/authSchemas';
 
 export class AuthController {
     private authService: AuthService;
@@ -16,8 +16,8 @@ export class AuthController {
         next: NextFunction
     ) => {
         try {
-            const validateData = req.body as RegisterInput;
-            const registerDTO = RegisterDTO.fromRequest(validateData);
+            const validateData = registerSchema.parse(req);
+            const registerDTO = RegisterDTO.fromRequest(validateData.body);
 
             await this.authService.register(registerDTO);
 
