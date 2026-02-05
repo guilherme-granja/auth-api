@@ -26,4 +26,34 @@ export class UserRepository {
             data: data
         });
     }
+
+    async setResetToken(
+        id: string,
+        resetToken: string,
+        resetTokenExpiry: Date
+    ): Promise<User> {
+        return await prisma.user.update({
+            where: { id },
+            data: {
+                resetToken,
+                resetTokenExpiry
+            }
+        });
+    }
+
+    async findByResetToken(resetToken: string): Promise<User | null> {
+        return await prisma.user.findFirst({
+            where: { resetToken },
+        });
+    }
+
+    async clearResetToken(id: string): Promise<User> {
+        return await prisma.user.update({
+            where: { id },
+            data: {
+                resetToken: null,
+                resetTokenExpiry: null,
+            },
+        });
+    }
 }
