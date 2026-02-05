@@ -1,62 +1,80 @@
-import jwt, { SignOptions, JwtPayload } from 'jsonwebtoken';
-import {GeneratedToken} from "../dtos/jwt/GeneratedToken";
+import jwt, {JwtPayload, SignOptions} from 'jsonwebtoken';
+import crypto from 'crypto';
+import {AccessTokenPayload} from "../dtos/jwt/AccessTokenPayload";
+import {RefreshTokenPayload} from "../dtos/jwt/RefreshTokenPayload";
+
 export class JwtUtils {
     private static readonly DEFAULT_EXPIRES_IN_SECONDS = 3600;
 
-    private static getSecret(): string {
-        const secret = process.env.JWT_SECRET;
+    private static getAccessTokenSecret(): string {
+        const secret = process.env.OAUTH_ACCESS_TOKEN_SECRET;
 
         if (!secret) {
-            throw new Error('JWT_SECRET environment variable is not defined');
+            throw new Error('OAUTH_ACCESS_TOKEN_SECRET is not defined');
         }
 
         return secret;
     }
 
-    private static getExpiresInSeconds(): number {
-        const expiresIn = process.env.JWT_EXPIRES_IN_SECONDS;
+    private static getRefreshTokenSecret(): string {
+        const secret = process.env.OAUTH_REFRESH_TOKEN_SECRET;
 
-        if (!expiresIn) {
-            return this.DEFAULT_EXPIRES_IN_SECONDS;
+        if (!secret) {
+            throw new Error('OAUTH_REFRESH_TOKEN_SECRET is not defined');
         }
 
-        const parsed = parseInt(expiresIn, 10);
-
-        if (isNaN(parsed)) {
-            return this.DEFAULT_EXPIRES_IN_SECONDS;
-        }
-
-        return parsed;
+        return secret;
     }
 
-    private static calculateExpiresAt(): Date {
-        const expiresInMs = this.getExpiresInSeconds() * 1000;
-
-        return new Date(Date.now() + expiresInMs);
+    static generateTokenId(): string {
+        return crypto.randomUUID();
     }
 
-    static generateAccessToken(payload: { sub: string }): GeneratedToken {
+    static generateAccessToken(
+        payload: AccessTokenPayload,
+        expiresInSeconds: number
+    ): string {
         const options: SignOptions = {
-            expiresIn: this.getExpiresInSeconds(),
+            expiresIn: expiresInSeconds,
+            algorithm: 'HS256',
         };
-        const expiresInSeconds = this.getExpiresInSeconds();
-        const expiresAt = this.calculateExpiresAt();
 
-        const token = jwt.sign(payload, this.getSecret(), options);
-
-        return {
-            token,
-            expiresAt
-        };
+        return jwt.sign(payload, this.getAccessTokenSecret(), options);
     }
 
-    static verifyToken(token: string): JwtPayload {
-        const decoded = jwt.verify(token, this.getSecret());
+    static generateRefreshToken(
+        payload: RefreshTokenPayload,
+        expiresInSeconds: number
+    ): string {
+        const options: SignOptions = {
+            expiresIn: expiresInSeconds,
+            algorithm: 'HS256',
+        };
 
-        if (typeof decoded === 'string') {
-            throw new Error('Invalid token format');
+        return jwt.sign(payload, this.getRefreshTokenSecret(), options);
+    }
+
+    static verifyAccessToken(token: string): AccessTokenPayload | null {
+        try {
+            return jwt.verify(token, this.getAccessTokenSecret()) as AccessTokenPayload;
+        } catch {
+            return null;
         }
+    }
 
-        return decoded;
+    static verifyRefreshToken(token: string): RefreshTokenPayload | null {
+        try {
+            return jwt.verify(token, this.getRefreshTokenSecret()) as RefreshTokenPayload;
+        } catch {
+            return null;
+        }
+    }
+
+    static decodeWithoutVerify(token: string): JwtPayload | null {
+        try {
+            return jwt.decode(token) as JwtPayload;
+        } catch {
+            return null;
+        }
     }
 }

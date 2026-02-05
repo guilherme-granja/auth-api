@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-import { MissingTokenException } from "../exceptions/auth/MissingTokenException";
-import { JwtUtils } from "../utils/jwt";
-import { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
-import { TokenExpiredException } from "../exceptions/auth/TokenExpiredException";
-import { InvalidCredentialsException } from "../exceptions/auth/InvalidCredentialsException";
+import { MissingTokenException } from '../exceptions/auth/MissingTokenException';
+import { InvalidTokenException } from '../exceptions/auth/InvalidTokenException';
+import {OAuthServer} from "../services/oauth/grants/OAuthServer";
+
+const oauthServer = new OAuthServer();
 
 export const authenticate = async (
     req: Request,
@@ -17,25 +17,45 @@ export const authenticate = async (
             throw new MissingTokenException();
         }
 
-        const payload = JwtUtils.verifyToken(token);
+        const validatedToken = await oauthServer.validateAccessToken(token);
 
-        req.user = {
-            id: payload.sub as string
+        if (!validatedToken) {
+            throw new InvalidTokenException();
+        }
+
+        req.user = validatedToken.userId
+            ? { id: validatedToken.userId }
+            : undefined;
+
+        req.oauth = {
+            clientId: validatedToken.clientId,
+            scopes: validatedToken.scopes,
         };
 
         next();
     } catch (error) {
-        if (error instanceof TokenExpiredError) {
-            return next(new TokenExpiredException());
-        }
-
-        if (error instanceof JsonWebTokenError) {
-            return next(new InvalidCredentialsException());
-        }
-
         next(error);
     }
-}
+};
+
+export const requireScopes = (requiredScopes: string[]) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        const tokenScopes = req.oauth?.scopes || [];
+
+        const hasAllScopes = requiredScopes.every(scope =>
+            tokenScopes.includes(scope)
+        );
+
+        if (!hasAllScopes) {
+            return res.status(403).json({
+                error: 'insufficient_scope',
+                error_description: `Required scopes: ${requiredScopes.join(', ')}`,
+            });
+        }
+
+        next();
+    };
+};
 
 function extractTokenFromHeader(req: Request): string | null {
     const authHeader = req.headers.authorization;

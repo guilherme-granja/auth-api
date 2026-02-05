@@ -8,27 +8,85 @@ datasource db {
 }
 
 model User {
-  id               String         @id @default(uuid(7))
-  email            String         @unique
+  id               String             @id @default(uuid(7))
+  email            String             @unique
   password         String
   resetToken       String?
   resetTokenExpiry DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  refreshTokens    RefreshToken[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  accessTokens     OAuthAccessToken[]
+  authCodes        OAuthAuthCode[]
 }
 
-model RefreshToken {
-  id        String   @id @default(uuid(7))
-  token     String   @unique
-  userId    String
+model OAuthClient {
+  id             String              @id @default(uuid(7))
+  name           String
+  secret         String?
+  redirectUris   String[]
+  grants         String[]
+  isConfidential Boolean             @default(true)
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  accessTokens   OAuthAccessToken[]
+  refreshTokens  OAuthRefreshToken[]
+  authCodes      OAuthAuthCode[]
+}
+
+model OAuthAccessToken {
+  id        String    @id @default(uuid(7))
+  jti       String    @unique
+  scopes    String[]
   expiresAt DateTime
-  createdAt DateTime @default(now())
-  userAgent String?
-  ipAddress String?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId String
+  client   OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshToken OAuthRefreshToken?
+
+  @@index([jti])
   @@index([userId])
-  @@index([token])
+  @@index([clientId])
+}
+
+model OAuthRefreshToken {
+  id        String    @id @default(uuid(7))
+  jti       String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  accessTokenId String           @unique
+  accessToken   OAuthAccessToken @relation(fields: [accessTokenId], references: [id], onDelete: Cascade)
+
+  clientId String
+  client   OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([jti])
+  @@index([accessTokenId])
+}
+
+model OAuthAuthCode {
+  id                  String    @id @default(uuid(7))
+  userId              String
+  clientId            String
+  code                String    @unique
+  redirectUri         String
+  scopes              String[]
+  codeChallenge       String?
+  codeChallengeMethod String?
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  client OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([code])
 }
