@@ -29,3 +29,19 @@ export const loginSchema = z.object({
             .min(1, { message: 'Password is required' }),
     }),
 });
+
+export const refreshTokenSchema = z.object({
+    body: z.object({
+        refreshToken: z
+            .string()
+            .min(1, { message: 'Refresh token is required' }),
+    }),
+});
+
+export const logoutSchema = z.object({
+    body: z.object({
+        refreshToken: z
+            .string()
+            .min(1, { message: 'Refresh token is required' }),
+    }),
+});

@@ -6,12 +6,23 @@ import { UserAlreadyExistsException } from "../exceptions/auth/UserAlreadyExists
 import { LoginDTO } from "../dtos/auth/LoginDTO";
 import { LoginResult } from "../dtos/auth/LoginResult";
 import { InvalidCredentialsException } from "../exceptions/auth/InvalidCredentialsException";
+import {TokenMetadata} from "../dtos/jwt/TokenMetadata";
+import {RefreshTokenUtils} from "../utils/refreshToken";
+import {RefreshTokenRepository} from "../repositories/RefreshTokenRepository";
+import {RefreshTokenDTO} from "../dtos/refreshToken/RefreshTokenDTO";
+import {RefreshTokenExpiredException} from "../exceptions/refreshTokens/RefreshTokenExpiredException";
+import {LogoutDTO} from "../dtos/auth/LogoutDTO";
 
 export class AuthService {
     private userRepository: UserRepository;
+    private refreshTokenRepository: RefreshTokenRepository;
 
-    constructor(userRepository?: UserRepository) {
+    constructor(
+        userRepository?: UserRepository,
+        refreshTokenRepository?: RefreshTokenRepository
+    ) {
         this.userRepository = userRepository || new UserRepository();
+        this.refreshTokenRepository = refreshTokenRepository || new RefreshTokenRepository();
     }
 
     async register(dto: RegisterDTO): Promise<void> {
@@ -31,7 +42,10 @@ export class AuthService {
         });
     }
 
-    async login(dto: LoginDTO): Promise<LoginResult> {
+    async login(
+        dto: LoginDTO,
+        metadata?: TokenMetadata
+    ): Promise<LoginResult> {
         const user = await this.userRepository.findByEmail(dto.email);
 
         if (!user) {
@@ -49,13 +63,36 @@ export class AuthService {
 
         await this.rehashPasswordIfNeeded(user.id, dto.password, user.password);
 
-        const { token, expiresAt } = JwtUtils.generateAccessToken({ sub: user.id });
+        return await this.generateTokenPair(user.id, metadata)
+    }
 
-        return {
-            tokenType: 'Bearer',
-            accessToken: token,
-            expiresAt: expiresAt.toISOString(),
-        };
+    async refresh(dto: RefreshTokenDTO, metadata?: TokenMetadata): Promise<LoginResult> {
+        const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
+
+        if (!storedToken) {
+            throw new InvalidCredentialsException();
+        }
+
+        if (RefreshTokenUtils.isExpired(storedToken.expiresAt)) {
+            await this.refreshTokenRepository.deleteByToken(dto.refreshToken);
+            throw new RefreshTokenExpiredException();
+        }
+
+        await this.refreshTokenRepository.deleteByToken(dto.refreshToken);
+
+        return this.generateTokenPair(storedToken.userId, metadata);
+    }
+
+    async logout(dto: LogoutDTO): Promise<void> {
+        const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
+
+        if (storedToken) {
+            await this.refreshTokenRepository.deleteByToken(dto.refreshToken);
+        }
+    }
+
+    async logoutAll(userId: string): Promise<void> {
+        await this.refreshTokenRepository.deleteAllByUserId(userId);
     }
 
     private async rehashPasswordIfNeeded(
@@ -69,5 +106,32 @@ export class AuthService {
             const newHash = await HashUtils.hash(plainPassword);
             await this.userRepository.update(userId, { password: newHash });
         }
+    }
+
+    private async generateTokenPair(
+        userId: string,
+        metadata?: TokenMetadata
+    ): Promise<LoginResult> {
+        const { token: accessToken, expiresAt } = JwtUtils.generateAccessToken({ sub: userId });
+
+        const refreshToken = RefreshTokenUtils.generateToken();
+        const refreshTokenExpiresAt = RefreshTokenUtils.calculateExpiresAt();
+
+        await this.refreshTokenRepository.create({
+            token: refreshToken,
+            expiresAt: refreshTokenExpiresAt,
+            userAgent: metadata?.userAgent,
+            ipAddress: metadata?.ipAddress,
+            user: {
+                connect: { id: userId }
+            }
+        });
+
+        return {
+            tokenType: 'Bearer',
+            accessToken,
+            expiresAt: expiresAt.toISOString(),
+            refreshToken,
+        };
     }
 }
