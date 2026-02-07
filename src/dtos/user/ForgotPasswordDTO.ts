@@ -1,13 +1,13 @@
 export class ForgotPasswordDTO {
-    readonly email: string;
+  readonly email: string;
 
-    constructor(data: { email: string }) {
-        this.email = data.email;
-    }
+  constructor(data: { email: string }) {
+    this.email = data.email;
+  }
 
-    static fromRequest(body: { email: string }): ForgotPasswordDTO {
-        return new ForgotPasswordDTO({
-            email: body.email,
-        });
-    }
+  static fromRequest(body: { email: string }): ForgotPasswordDTO {
+    return new ForgotPasswordDTO({
+      email: body.email,
+    });
+  }
 }

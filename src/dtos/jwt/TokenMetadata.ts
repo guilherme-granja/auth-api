@@ -1,4 +1,4 @@
 export interface TokenMetadata {
-    userAgent?: string;
-    ipAddress?: string;
+  userAgent?: string;
+  ipAddress?: string;
 }

@@ -1,4 +1,4 @@
 export interface GeneratedToken {
-    token: string;
-    expiresAt: Date;
+  token: string;
+  expiresAt: Date;
 }

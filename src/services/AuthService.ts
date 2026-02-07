@@ -1,143 +1,129 @@
-import { UserRepository } from "../repositories/UserRepository";
-import { HashUtils } from "../utils/hash";
-import { JwtUtils } from "../utils/jwt";
-import { RegisterDTO } from "../dtos/auth/RegisterDTO";
-import { UserAlreadyExistsException } from "../exceptions/auth/UserAlreadyExistsException";
-import { LoginDTO } from "../dtos/auth/LoginDTO";
-import { LoginResult } from "../dtos/auth/LoginResult";
-import { InvalidCredentialsException } from "../exceptions/auth/InvalidCredentialsException";
-import {TokenMetadata} from "../dtos/jwt/TokenMetadata";
-import {RefreshTokenUtils} from "../utils/refreshToken";
-import {RefreshTokenRepository} from "../repositories/RefreshTokenRepository";
-import {RefreshTokenDTO} from "../dtos/refreshToken/RefreshTokenDTO";
-import {RefreshTokenExpiredException} from "../exceptions/refreshTokens/RefreshTokenExpiredException";
-import {LogoutDTO} from "../dtos/auth/LogoutDTO";
-import {RefreshTokenRevokedException} from "../exceptions/refreshTokens/RefreshTokenRevokedException";
+import { UserRepository } from '../repositories/UserRepository';
+import { HashUtils } from '../utils/hash';
+import { JwtUtils } from '../utils/jwt';
+import { RegisterDTO } from '../dtos/auth/RegisterDTO';
+import { UserAlreadyExistsException } from '../exceptions/auth/UserAlreadyExistsException';
+import { LoginDTO } from '../dtos/auth/LoginDTO';
+import { LoginResult } from '../dtos/auth/LoginResult';
+import { InvalidCredentialsException } from '../exceptions/auth/InvalidCredentialsException';
+import { TokenMetadata } from '../dtos/jwt/TokenMetadata';
+import { RefreshTokenUtils } from '../utils/refreshToken';
+import { RefreshTokenRepository } from '../repositories/RefreshTokenRepository';
+import { RefreshTokenDTO } from '../dtos/refreshToken/RefreshTokenDTO';
+import { RefreshTokenExpiredException } from '../exceptions/refreshTokens/RefreshTokenExpiredException';
+import { LogoutDTO } from '../dtos/auth/LogoutDTO';
+import { RefreshTokenRevokedException } from '../exceptions/refreshTokens/RefreshTokenRevokedException';
 
 export class AuthService {
-    private userRepository: UserRepository;
-    private refreshTokenRepository: RefreshTokenRepository;
+  private userRepository: UserRepository;
+  private refreshTokenRepository: RefreshTokenRepository;
 
-    constructor(
-        userRepository?: UserRepository,
-        refreshTokenRepository?: RefreshTokenRepository
-    ) {
-        this.userRepository = userRepository || new UserRepository();
-        this.refreshTokenRepository = refreshTokenRepository || new RefreshTokenRepository();
+  constructor(userRepository?: UserRepository, refreshTokenRepository?: RefreshTokenRepository) {
+    this.userRepository = userRepository || new UserRepository();
+    this.refreshTokenRepository = refreshTokenRepository || new RefreshTokenRepository();
+  }
+
+  async register(dto: RegisterDTO): Promise<void> {
+    const existingUser = await this.userRepository.findByEmail(dto.getNormalizedEmail());
+
+    if (existingUser) {
+      throw new UserAlreadyExistsException();
     }
 
-    async register(dto: RegisterDTO): Promise<void> {
-        const existingUser = await this.userRepository.findByEmail(
-            dto.getNormalizedEmail()
-        );
+    const hashedPassword = await HashUtils.hash(dto.password);
 
-        if (existingUser) {
-            throw new UserAlreadyExistsException();
-        }
+    await this.userRepository.create({
+      email: dto.getNormalizedEmail(),
+      password: hashedPassword,
+    });
+  }
 
-        const hashedPassword = await HashUtils.hash(dto.password);
+  async login(dto: LoginDTO, metadata?: TokenMetadata): Promise<LoginResult> {
+    const user = await this.userRepository.findByEmail(dto.email);
 
-        await this.userRepository.create({
-            email: dto.getNormalizedEmail(),
-            password: hashedPassword
-        });
+    if (!user) {
+      throw new InvalidCredentialsException();
     }
 
-    async login(
-        dto: LoginDTO,
-        metadata?: TokenMetadata
-    ): Promise<LoginResult> {
-        const user = await this.userRepository.findByEmail(dto.email);
+    const isPasswordValid = await HashUtils.compare(dto.password, user.password);
 
-        if (!user) {
-            throw new InvalidCredentialsException();
-        }
-
-        const isPasswordValid = await HashUtils.compare(
-            dto.password,
-            user.password
-        );
-
-        if (!isPasswordValid) {
-            throw new InvalidCredentialsException();
-        }
-
-        await this.rehashPasswordIfNeeded(user.id, dto.password, user.password);
-
-        return await this.generateTokenPair(user.id, metadata)
+    if (!isPasswordValid) {
+      throw new InvalidCredentialsException();
     }
 
-    async refresh(dto: RefreshTokenDTO, metadata?: TokenMetadata): Promise<LoginResult> {
-        const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
+    await this.rehashPasswordIfNeeded(user.id, dto.password, user.password);
 
-        if (!storedToken) {
-            throw new InvalidCredentialsException();
-        }
+    return await this.generateTokenPair(user.id, metadata);
+  }
 
-        if (RefreshTokenUtils.isRevoked(storedToken.revoked)) {
-            await this.refreshTokenRepository.revokeAllUserTokens(storedToken.userId);
-            throw new RefreshTokenRevokedException();
-        }
+  async refresh(dto: RefreshTokenDTO, metadata?: TokenMetadata): Promise<LoginResult> {
+    const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
 
-        if (RefreshTokenUtils.isExpired(storedToken.expiresAt)) {
-            await this.refreshTokenRepository.revokeById(storedToken.id);
-            throw new RefreshTokenExpiredException();
-        }
-
-        await this.refreshTokenRepository.revokeById(storedToken.id);
-
-        return this.generateTokenPair(storedToken.userId, metadata);
+    if (!storedToken) {
+      throw new InvalidCredentialsException();
     }
 
-    async logout(dto: LogoutDTO): Promise<void> {
-        const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
-
-        if (storedToken) {
-            await this.refreshTokenRepository.revokeById(storedToken.id);
-        }
+    if (RefreshTokenUtils.isRevoked(storedToken.revoked)) {
+      await this.refreshTokenRepository.revokeAllUserTokens(storedToken.userId);
+      throw new RefreshTokenRevokedException();
     }
 
-    async logoutAll(userId: string): Promise<void> {
-        await this.refreshTokenRepository.revokeAllUserTokens(userId);
+    if (RefreshTokenUtils.isExpired(storedToken.expiresAt)) {
+      await this.refreshTokenRepository.revokeById(storedToken.id);
+      throw new RefreshTokenExpiredException();
     }
 
-    private async rehashPasswordIfNeeded(
-        userId: string,
-        plainPassword: string,
-        hashedPassword: string
-    ): Promise<void> {
-        const needRehash = await HashUtils.needsRehash(hashedPassword);
+    await this.refreshTokenRepository.revokeById(storedToken.id);
 
-        if (needRehash) {
-            const newHash = await HashUtils.hash(plainPassword);
-            await this.userRepository.update(userId, { password: newHash });
-        }
+    return this.generateTokenPair(storedToken.userId, metadata);
+  }
+
+  async logout(dto: LogoutDTO): Promise<void> {
+    const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
+
+    if (storedToken) {
+      await this.refreshTokenRepository.revokeById(storedToken.id);
     }
+  }
 
-    private async generateTokenPair(
-        userId: string,
-        metadata?: TokenMetadata
-    ): Promise<LoginResult> {
-        const { token: accessToken, expiresAt } = JwtUtils.generateAccessToken({ sub: userId });
+  async logoutAll(userId: string): Promise<void> {
+    await this.refreshTokenRepository.revokeAllUserTokens(userId);
+  }
 
-        const refreshToken = RefreshTokenUtils.generateToken();
-        const refreshTokenExpiresAt = RefreshTokenUtils.calculateExpiresAt();
+  private async rehashPasswordIfNeeded(
+    userId: string,
+    plainPassword: string,
+    hashedPassword: string
+  ): Promise<void> {
+    const needRehash = await HashUtils.needsRehash(hashedPassword);
 
-        await this.refreshTokenRepository.create({
-            token: refreshToken,
-            expiresAt: refreshTokenExpiresAt,
-            userAgent: metadata?.userAgent,
-            ipAddress: metadata?.ipAddress,
-            user: {
-                connect: { id: userId }
-            }
-        });
-
-        return {
-            tokenType: 'Bearer',
-            accessToken,
-            expiresAt: expiresAt.toISOString(),
-            refreshToken,
-        };
+    if (needRehash) {
+      const newHash = await HashUtils.hash(plainPassword);
+      await this.userRepository.update(userId, { password: newHash });
     }
+  }
+
+  private async generateTokenPair(userId: string, metadata?: TokenMetadata): Promise<LoginResult> {
+    const { token: accessToken, expiresAt } = JwtUtils.generateAccessToken({ sub: userId });
+
+    const refreshToken = RefreshTokenUtils.generateToken();
+    const refreshTokenExpiresAt = RefreshTokenUtils.calculateExpiresAt();
+
+    await this.refreshTokenRepository.create({
+      token: refreshToken,
+      expiresAt: refreshTokenExpiresAt,
+      userAgent: metadata?.userAgent,
+      ipAddress: metadata?.ipAddress,
+      user: {
+        connect: { id: userId },
+      },
+    });
+
+    return {
+      tokenType: 'Bearer',
+      accessToken,
+      expiresAt: expiresAt.toISOString(),
+      refreshToken,
+    };
+  }
 }

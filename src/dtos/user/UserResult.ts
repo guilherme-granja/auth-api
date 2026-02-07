@@ -1,5 +1,5 @@
 export interface UserResult {
-    id: string,
-    email: string,
-    createdAt: string
+  id: string;
+  email: string;
+  createdAt: string;
 }

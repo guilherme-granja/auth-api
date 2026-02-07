@@ -1,11 +1,11 @@
 export interface AuthenticatedUser {
-    id: string;
+  id: string;
 }
 
 declare global {
-    namespace Express {
-        interface Request {
-            user?: AuthenticatedUser;
-        }
+  namespace Express {
+    interface Request {
+      user?: AuthenticatedUser;
     }
+  }
 }
