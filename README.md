@@ -1,6 +1,6 @@
 # Auth API
 
-A RESTful authentication API built with Node.js, Express, and TypeScript. This project implements user registration and login with JWT-based authentication, following a clean layered architecture.
+A RESTful authentication API built with Node.js, Express, and TypeScript. This project implements user registration, login, refresh tokens, logout, and password reset with JWT-based authentication, following a clean layered architecture.
 
 > **Disclaimer:** This project was built for **study and learning purposes only**. It is not intended for production use. The goal is to practice backend development concepts such as layered architecture, input validation, password hashing, JWT authentication, and database management with an ORM.
 
@@ -9,6 +9,7 @@ A RESTful authentication API built with Node.js, Express, and TypeScript. This p
 ## Table of Contents
 
 - [Tech Stack](#tech-stack)
+- [Features](#features)
 - [Architecture](#architecture)
 - [Database](#database)
 - [API Endpoints](#api-endpoints)
@@ -17,6 +18,7 @@ A RESTful authentication API built with Node.js, Express, and TypeScript. This p
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
 - [Error Handling](#error-handling)
+- [Security](#security)
 - [License](#license)
 
 ---
@@ -29,13 +31,29 @@ A RESTful authentication API built with Node.js, Express, and TypeScript. This p
 | Language          | [TypeScript](https://www.typescriptlang.org/) 5.9                |
 | Framework         | [Express](https://expressjs.com/) 5.2                            |
 | Database          | [PostgreSQL](https://www.postgresql.org/)                        |
+| Cache / Blacklist | [Redis](https://redis.io/)                                       |
 | ORM               | [Prisma](https://www.prisma.io/) 7.3                             |
 | Validation        | [Zod](https://zod.dev/) 4.3                                      |
 | Authentication    | [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken) 9.0   |
 | Password Hashing  | [bcrypt](https://github.com/kelektiv/node.bcrypt.js) 6.0         |
 | Security Headers  | [Helmet](https://helmetjs.github.io/) 8.1                        |
-| Linting           | [ESLint](https://eslint.org/) 9.39                                |
-| Formatting        | [Prettier](https://prettier.io/) 3.8                              |
+| Linting           | [ESLint](https://eslint.org/) 9.39                               |
+| Formatting        | [Prettier](https://prettier.io/) 3.8                             |
+
+---
+
+## Features
+
+- **User Registration** — Create new accounts with email and password
+- **User Login** — Authenticate and receive JWT access token + refresh token
+- **Token Refresh** — Exchange refresh token for new access/refresh token pair (rotation)
+- **Logout** — Revoke refresh token and blacklist access token
+- **Logout All Sessions** — Revoke all user sessions across devices
+- **Password Reset** — Request password reset via email and reset with token
+- **User Profile** — Get authenticated user information
+- **Token Blacklisting** — Redis-based access token blacklist for immediate invalidation
+- **Scheduled Cleanup** — Automatic cleanup of expired and revoked refresh tokens
+- **Device Tracking** — Store user agent and IP address with refresh tokens
 
 ---
 
@@ -55,46 +73,86 @@ Request → Routes → Middleware (validation) → Controller → Service → Re
 | **Controllers**| Handle HTTP requests and responses                 |
 | **Services**   | Contain business logic                             |
 | **Repositories**| Data access through Prisma ORM                    |
-| **Middlewares** | Cross-cutting concerns (validation, error handling)|
+| **Middlewares** | Cross-cutting concerns (validation, auth, error handling)|
 | **DTOs**       | Define data transfer shapes between layers         |
 | **Exceptions** | Custom typed HTTP errors                           |
 | **Validators** | Zod schemas for request validation                 |
+| **Jobs**       | Scheduled background tasks                         |
 
 ---
 
 ## Database
 
-### Engine
+### Prerequisites
 
-**PostgreSQL** — connected through Prisma ORM with the native `@prisma/adapter-pg` driver.
+This application requires the following services to be installed and running:
 
-### Schema
+- **PostgreSQL** — Primary database for user and token storage
+- **Redis** — Used for access token blacklisting (immediate token invalidation)
 
-The database currently contains a single table:
+### Database Diagram
 
-#### `User`
+```
+┌─────────────────────────────────────────┐
+│                  User                   │
+├─────────────────────────────────────────┤
+│ id               : String (PK, UUID v7) │
+│ email            : String (unique)      │
+│ password         : String               │
+│ resetToken       : String?              │
+│ resetTokenExpiry : DateTime?            │
+│ createdAt        : DateTime             │
+│ updatedAt        : DateTime             │
+└────────────────────┬────────────────────┘
+                     │
+                     │ 1:N
+                     ▼
+┌─────────────────────────────────────────┐
+│              RefreshToken               │
+├─────────────────────────────────────────┤
+│ id         : String (PK, UUID v7)       │
+│ token      : String (unique)            │
+│ userId     : String (FK → User.id)      │
+│ expiresAt  : DateTime                   │
+│ createdAt  : DateTime                   │
+│ userAgent  : String?                    │
+│ ipAddress  : String?                    │
+│ revoked    : Boolean (default: false)   │
+│ revokedAt  : DateTime?                  │
+│ lastUsedAt : DateTime                   │
+└─────────────────────────────────────────┘
+```
 
-| Column             | Type       | Constraints                | Description                         |
-| ------------------ | ---------- | -------------------------- | ----------------------------------- |
-| `id`               | `String`   | PK, UUID v7, auto-generated | Unique user identifier             |
-| `email`            | `String`   | Unique, required            | User email address                 |
-| `password`         | `String`   | Required                    | Bcrypt-hashed password             |
-| `resetToken`       | `String?`  | Optional                    | Password reset token (future use)  |
-| `resetTokenExpiry` | `DateTime?`| Optional                    | Reset token expiration (future use)|
-| `createdAt`        | `DateTime` | Auto-generated              | Record creation timestamp          |
-| `updatedAt`        | `DateTime` | Auto-updated                | Record last update timestamp       |
-
-### Prisma Schema Definition
+### Prisma Schema
 
 ```prisma
 model User {
-  id               String    @id @default(uuid(7))
-  email            String    @unique
+  id               String         @id @default(uuid(7))
+  email            String         @unique
   password         String
   resetToken       String?
   resetTokenExpiry DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  refreshTokens    RefreshToken[]
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid(7))
+  token      String    @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  userAgent  String?
+  ipAddress  String?
+  revoked    Boolean   @default(false)
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
 }
 ```
 
@@ -121,7 +179,9 @@ GET /api/health
 
 ---
 
-### Register
+### Authentication Endpoints
+
+#### Register
 
 ```
 POST /api/auth/register
@@ -165,13 +225,13 @@ Creates a new user account.
 
 ---
 
-### Login
+#### Login
 
 ```
 POST /api/auth/login
 ```
 
-Authenticates a user and returns a JWT access token.
+Authenticates a user and returns JWT access token and refresh token.
 
 **Request Body**
 
@@ -190,7 +250,8 @@ Authenticates a user and returns a JWT access token.
   "data": {
     "tokenType": "Bearer",
     "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresAt": "2026-02-04T13:00:00.000Z"
+    "expiresAt": "2026-02-04T13:00:00.000Z",
+    "refreshToken": "a1b2c3d4e5f6..."
   }
 }
 ```
@@ -203,6 +264,182 @@ Authenticates a user and returns a JWT access token.
   "message": "Invalid email or password"
 }
 ```
+
+---
+
+#### Refresh Token
+
+```
+POST /api/auth/refresh
+```
+
+Exchanges a valid refresh token for a new access token and refresh token pair. The old refresh token is revoked (token rotation).
+
+**Request Body**
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "a1b2c3d4e5f6..."
+}
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "tokenType": "Bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresAt": "2026-02-04T14:00:00.000Z",
+    "refreshToken": "f6e5d4c3b2a1..."
+  }
+}
+```
+
+**Error** `401 Unauthorized` — refresh token is invalid, expired, or revoked
+
+---
+
+#### Logout
+
+```
+POST /api/auth/logout
+```
+
+Revokes the refresh token and blacklists the access token.
+
+**Request Body**
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "a1b2c3d4e5f6..."
+}
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Logged out successfully"
+}
+```
+
+---
+
+#### Logout All Sessions
+
+```
+POST /api/auth/logout-all
+```
+
+Revokes all refresh tokens for the authenticated user and blacklists the current access token. Requires authentication.
+
+**Headers**
+
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Logged out from all sessions"
+}
+```
+
+---
+
+### User Endpoints
+
+#### Get Current User
+
+```
+GET /api/user/me
+```
+
+Returns the authenticated user's profile. Requires authentication.
+
+**Headers**
+
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "0192d4f8-1234-7abc-...",
+    "email": "user@example.com",
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### Forgot Password
+
+```
+POST /api/user/forgot-password
+```
+
+Requests a password reset email. Always returns success to prevent email enumeration.
+
+**Request Body**
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "If the email exists, a reset link has been sent"
+}
+```
+
+---
+
+#### Reset Password
+
+```
+POST /api/user/reset-password
+```
+
+Resets the user's password using a valid reset token. Invalidates all existing sessions.
+
+**Request Body**
+
+```json
+{
+  "token": "reset-token-from-email",
+  "password": "NewSecurePass1!"
+}
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Password reset successfully"
+}
+```
+
+**Error** `400 Bad Request` — token is invalid or expired
 
 ---
 
@@ -234,6 +471,7 @@ Authenticates a user and returns a JWT access token.
 
 - [Node.js](https://nodejs.org/) >= 20 (a `.nvmrc` file is provided)
 - [PostgreSQL](https://www.postgresql.org/) running locally or remotely
+- [Redis](https://redis.io/) running locally or remotely
 - [npm](https://www.npmjs.com/)
 
 ### Installation
@@ -257,19 +495,31 @@ Authenticates a user and returns a JWT access token.
 
    ```bash
    cp .env.example .env
-   # or create it manually
+   # Edit .env with your configuration
    ```
 
-4. **Set up the database**
+4. **Start PostgreSQL and Redis**
 
-   Make sure PostgreSQL is running, then generate the Prisma client and run migrations:
+   Make sure both PostgreSQL and Redis are running. You can use Docker:
+
+   ```bash
+   # PostgreSQL
+   docker run -d --name postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
+
+   # Redis
+   docker run -d --name redis -p 6379:6379 redis
+   ```
+
+5. **Set up the database**
+
+   Generate the Prisma client and run migrations:
 
    ```bash
    npm run prisma:generate
    npm run prisma:migrate
    ```
 
-5. **Start the development server**
+6. **Start the development server**
 
    ```bash
    npm run dev
@@ -295,18 +545,34 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/mydb?schema=public"
 JWT_SECRET=your-secret-key-here
 JWT_EXPIRES_IN_SECONDS=3600
 
+# Refresh Token
+REFRESH_TOKEN_EXPIRES_IN_DAYS=7
+
+# Password reset token
+RESET_TOKEN_EXPIRY_HOURS=1
+
 # Bcrypt
 BCRYPT_ROUNDS=10
+
+# Frontend URL (for password reset emails)
+FRONTEND_URL="http://localhost:3001"
+
+# Redis
+REDIS_URL=redis://localhost:6379
 ```
 
-| Variable                 | Required | Default | Description                                  |
-| ------------------------ | -------- | ------- | -------------------------------------------- |
-| `PORT`                   | No       | `3000`  | Port the server listens on                   |
-| `NODE_ENV`               | No       | —       | Environment (`development` / `production`)   |
-| `DATABASE_URL`           | Yes      | —       | PostgreSQL connection string                 |
-| `JWT_SECRET`             | Yes      | —       | Secret key used to sign JWT tokens           |
-| `JWT_EXPIRES_IN_SECONDS` | No       | `3600`  | Token expiration time in seconds (1 hour)    |
-| `BCRYPT_ROUNDS`          | No       | `10`    | Number of salt rounds for password hashing   |
+| Variable                      | Required | Default | Description                                  |
+| ----------------------------- | -------- | ------- | -------------------------------------------- |
+| `PORT`                        | No       | `3000`  | Port the server listens on                   |
+| `NODE_ENV`                    | No       | —       | Environment (`development` / `production`)   |
+| `DATABASE_URL`                | Yes      | —       | PostgreSQL connection string                 |
+| `JWT_SECRET`                  | Yes      | —       | Secret key used to sign JWT tokens           |
+| `JWT_EXPIRES_IN_SECONDS`      | No       | `3600`  | Access token expiration time (1 hour)        |
+| `REFRESH_TOKEN_EXPIRES_IN_DAYS`| No      | `7`     | Refresh token expiration time (7 days)       |
+| `RESET_TOKEN_EXPIRY_HOURS`    | No       | `1`     | Password reset token expiration (1 hour)     |
+| `BCRYPT_ROUNDS`               | No       | `10`    | Number of salt rounds for password hashing   |
+| `FRONTEND_URL`                | No       | —       | Frontend URL for password reset emails       |
+| `REDIS_URL`                   | Yes      | —       | Redis connection string                      |
 
 ---
 
@@ -341,41 +607,76 @@ auth-api/
 │   ├── server.ts                  # Entry point — starts the HTTP server
 │   ├── app.ts                     # Express app setup and middleware
 │   ├── config/
-│   │   └── database.ts            # Prisma client singleton
+│   │   ├── database.ts            # Prisma client singleton
+│   │   └── redis.ts               # Redis client singleton
 │   ├── routes/
 │   │   └── api/
 │   │       ├── index.ts           # API route aggregator
-│   │       └── auth/
-│   │           └── authRoutes.ts  # Auth endpoint definitions
+│   │       ├── auth/
+│   │       │   └── authRoutes.ts  # Auth endpoint definitions
+│   │       └── user/
+│   │           └── userRoutes.ts  # User endpoint definitions
 │   ├── controllers/
-│   │   └── AuthController.ts      # Handles auth HTTP requests
+│   │   ├── AuthController.ts      # Handles auth HTTP requests
+│   │   └── UserController.ts      # Handles user HTTP requests
 │   ├── services/
-│   │   └── AuthService.ts         # Authentication business logic
+│   │   ├── AuthService.ts         # Authentication business logic
+│   │   ├── UserService.ts         # User business logic
+│   │   ├── EmailService.ts        # Email sending service
+│   │   └── TokenBlacklistService.ts # Redis token blacklist
 │   ├── repositories/
-│   │   └── UserRepository.ts      # User database operations
+│   │   ├── UserRepository.ts      # User database operations
+│   │   └── RefreshTokenRepository.ts # Refresh token operations
 │   ├── middlewares/
+│   │   ├── authenticate.ts        # JWT authentication middleware
 │   │   ├── errorHandler.ts        # Global error handling middleware
 │   │   └── validateRequest.ts     # Zod-based request validation
 │   ├── validators/
-│   │   └── authSchemas.ts         # Zod schemas for auth endpoints
+│   │   ├── authSchemas.ts         # Zod schemas for auth endpoints
+│   │   └── userSchemas.ts         # Zod schemas for user endpoints
 │   ├── dtos/
 │   │   ├── auth/
 │   │   │   ├── RegisterDTO.ts     # Registration input shape
 │   │   │   ├── LoginDTO.ts        # Login input shape
-│   │   │   └── LoginResult.ts     # Login response shape
-│   │   └── jwt/
-│   │       └── GeneratedToken.ts  # Token generation result shape
+│   │   │   ├── LoginResult.ts     # Login response shape
+│   │   │   └── LogoutDTO.ts       # Logout input shape
+│   │   ├── jwt/
+│   │   │   ├── GeneratedToken.ts  # Token generation result
+│   │   │   └── TokenMetadata.ts   # Request metadata for tokens
+│   │   ├── refreshToken/
+│   │   │   └── RefreshTokenDTO.ts # Refresh token input shape
+│   │   └── user/
+│   │       ├── UserResult.ts      # User profile response
+│   │       ├── ForgotPasswordDTO.ts
+│   │       └── ResetPasswordDTO.ts
 │   ├── exceptions/
 │   │   ├── HttpException.ts       # Base HTTP exception
 │   │   ├── ConflictException.ts   # 409 Conflict
 │   │   ├── UnauthorizedException.ts # 401 Unauthorized
-│   │   └── auth/
-│   │       ├── UserAlreadyExistsException.ts
-│   │       └── InvalidCredentialsException.ts
+│   │   ├── NotFoundException.ts   # 404 Not Found
+│   │   ├── auth/
+│   │   │   ├── UserAlreadyExistsException.ts
+│   │   │   ├── InvalidCredentialsException.ts
+│   │   │   ├── InvalidTokenException.ts
+│   │   │   ├── MissingTokenException.ts
+│   │   │   ├── TokenExpiredException.ts
+│   │   │   └── TokenBlacklistedException.ts
+│   │   ├── refreshTokens/
+│   │   │   ├── InvalidRefreshTokenException.ts
+│   │   │   ├── RefreshTokenExpiredException.ts
+│   │   │   └── RefreshTokenRevokedException.ts
+│   │   └── user/
+│   │       └── InvalidResetTokenException.ts
+│   ├── jobs/
+│   │   ├── scheduler.ts           # Job scheduler setup
+│   │   └── CleanupTokensJob.ts    # Cleanup expired tokens
 │   └── utils/
 │       ├── hash.ts                # Bcrypt hashing utilities
-│       └── jwt.ts                 # JWT generation and verification
+│       ├── jwt.ts                 # JWT generation and verification
+│       ├── refreshToken.ts        # Refresh token utilities
+│       └── passwordReset.ts       # Password reset token utilities
 ├── .env                           # Environment variables (git-ignored)
+├── .env.example                   # Example environment file
 ├── .nvmrc                         # Node.js version (20)
 ├── tsconfig.json                  # TypeScript configuration
 ├── eslint.config.mts              # ESLint configuration
@@ -394,8 +695,17 @@ Error
   └── HttpException (base)
         ├── ConflictException (409)
         │     └── UserAlreadyExistsException
-        └── UnauthorizedException (401)
-              └── InvalidCredentialsException
+        ├── UnauthorizedException (401)
+        │     ├── InvalidCredentialsException
+        │     ├── InvalidTokenException
+        │     ├── MissingTokenException
+        │     ├── TokenExpiredException
+        │     ├── TokenBlacklistedException
+        │     ├── InvalidRefreshTokenException
+        │     ├── RefreshTokenExpiredException
+        │     └── RefreshTokenRevokedException
+        └── NotFoundException (404)
+              └── InvalidResetTokenException
 ```
 
 All errors are caught by a global error handler middleware that returns a consistent response format:
@@ -417,10 +727,14 @@ The following security measures are in place:
 
 - **Password hashing** — Passwords are hashed with bcrypt before being stored. The API also supports automatic rehashing when the configured salt rounds change.
 - **JWT authentication** — Stateless token-based authentication with configurable expiration.
+- **Refresh token rotation** — Each token refresh issues a new refresh token and revokes the old one, limiting the window for token theft.
+- **Token blacklisting** — Access tokens are blacklisted in Redis on logout or token refresh, enabling immediate invalidation.
+- **Session invalidation** — Password reset invalidates all existing sessions by revoking all refresh tokens.
 - **Helmet** — Sets various HTTP security headers automatically.
 - **CORS** — Cross-Origin Resource Sharing middleware enabled.
 - **Input validation** — All incoming requests are validated with Zod schemas before reaching the controller layer.
 - **Environment variables** — Sensitive configuration is loaded from `.env` and excluded from version control.
+- **Device tracking** — User agent and IP address are stored with refresh tokens for security auditing.
 
 ---
 
