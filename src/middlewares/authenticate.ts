@@ -4,6 +4,8 @@ import { JwtUtils } from '../utils/jwt';
 import { JsonWebTokenError, TokenExpiredError } from 'jsonwebtoken';
 import { TokenExpiredException } from '../exceptions/auth/TokenExpiredException';
 import { InvalidCredentialsException } from '../exceptions/auth/InvalidCredentialsException';
+import {TokenBlacklistService} from "../services/TokenBlacklistService";
+import {TokenBlacklistedException} from "../exceptions/auth/TokenBlacklistedException";
 
 export const authenticate = async (
   req: Request,
@@ -15,6 +17,12 @@ export const authenticate = async (
 
     if (!token) {
       throw new MissingTokenException();
+    }
+
+    const isBlacklisted = await TokenBlacklistService.isBlacklisted(token);
+
+    if (isBlacklisted) {
+      throw new TokenBlacklistedException();
     }
 
     const payload = JwtUtils.verifyToken(token);

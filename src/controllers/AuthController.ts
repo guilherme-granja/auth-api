@@ -49,7 +49,8 @@ export class AuthController {
 
   refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const refreshDTO = RefreshTokenDTO.fromRequest(req.body);
+      const accessToken = this.extractAccessToken(req);
+      const refreshDTO = RefreshTokenDTO.fromRequest({ refreshToken: req.body.refreshToken, accessToken });
 
       const metadata = {
         userAgent: req.headers['user-agent'],
@@ -69,7 +70,8 @@ export class AuthController {
 
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const logoutDTO = LogoutDTO.fromRequest(req.body);
+      const accessToken = this.extractAccessToken(req);
+      const logoutDTO = LogoutDTO.fromRequest({ refreshToken: req.body.refreshToken, accessToken });
 
       await this.authService.logout(logoutDTO);
 
@@ -86,7 +88,7 @@ export class AuthController {
     try {
       const userId = req.user!.id;
 
-      await this.authService.logoutAll(userId);
+      await this.authService.logoutAll(userId, this.extractAccessToken(req));
 
       res.status(200).json({
         success: true,
@@ -96,4 +98,27 @@ export class AuthController {
       next(error);
     }
   };
+
+  // TODO - create a utils later on
+  private extractAccessToken(req: Request): string | null {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return null;
+    }
+
+    const parts = authHeader.split(' ');
+
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    const [scheme, token] = parts;
+
+    if (scheme.toLowerCase() !== 'bearer') {
+      return null;
+    }
+
+    return token;
+  }
 }

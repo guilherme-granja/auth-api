@@ -13,6 +13,7 @@ import { RefreshTokenDTO } from '../dtos/refreshToken/RefreshTokenDTO';
 import { RefreshTokenExpiredException } from '../exceptions/refreshTokens/RefreshTokenExpiredException';
 import { LogoutDTO } from '../dtos/auth/LogoutDTO';
 import { RefreshTokenRevokedException } from '../exceptions/refreshTokens/RefreshTokenRevokedException';
+import {TokenBlacklistService} from "./TokenBlacklistService";
 
 export class AuthService {
   private userRepository: UserRepository;
@@ -64,11 +65,13 @@ export class AuthService {
     }
 
     if (RefreshTokenUtils.isRevoked(storedToken.revoked)) {
+      await TokenBlacklistService.add(dto.accessToken);
       await this.refreshTokenRepository.revokeAllUserTokens(storedToken.userId);
       throw new RefreshTokenRevokedException();
     }
 
     if (RefreshTokenUtils.isExpired(storedToken.expiresAt)) {
+      await TokenBlacklistService.add(dto.accessToken);
       await this.refreshTokenRepository.revokeById(storedToken.id);
       throw new RefreshTokenExpiredException();
     }
@@ -82,11 +85,13 @@ export class AuthService {
     const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
 
     if (storedToken) {
+      await TokenBlacklistService.add(dto.accessToken)
       await this.refreshTokenRepository.revokeById(storedToken.id);
     }
   }
 
-  async logoutAll(userId: string): Promise<void> {
+  async logoutAll(userId: string, accessToken: string | null): Promise<void> {
+    await TokenBlacklistService.add(accessToken);
     await this.refreshTokenRepository.revokeAllUserTokens(userId);
   }
 
