@@ -50,7 +50,10 @@ export class AuthController {
   refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const accessToken = this.extractAccessToken(req);
-      const refreshDTO = RefreshTokenDTO.fromRequest({ refreshToken: req.body.refreshToken, accessToken });
+      const refreshDTO = RefreshTokenDTO.fromRequest({
+        refreshToken: req.body.refreshToken,
+        accessToken,
+      });
 
       const metadata = {
         userAgent: req.headers['user-agent'],

@@ -13,7 +13,7 @@ import { RefreshTokenDTO } from '../dtos/refreshToken/RefreshTokenDTO';
 import { RefreshTokenExpiredException } from '../exceptions/refreshTokens/RefreshTokenExpiredException';
 import { LogoutDTO } from '../dtos/auth/LogoutDTO';
 import { RefreshTokenRevokedException } from '../exceptions/refreshTokens/RefreshTokenRevokedException';
-import {TokenBlacklistService} from "./TokenBlacklistService";
+import { TokenBlacklistService } from './TokenBlacklistService';
 
 export class AuthService {
   private userRepository: UserRepository;
@@ -85,7 +85,7 @@ export class AuthService {
     const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
 
     if (storedToken) {
-      await TokenBlacklistService.add(dto.accessToken)
+      await TokenBlacklistService.add(dto.accessToken);
       await this.refreshTokenRepository.revokeById(storedToken.id);
     }
   }
