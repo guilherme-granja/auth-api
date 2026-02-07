@@ -12,6 +12,7 @@ A RESTful authentication API built with Node.js, Express, and TypeScript. This p
 - [Features](#features)
 - [Architecture](#architecture)
 - [Database](#database)
+- [API Documentation](#api-documentation)
 - [API Endpoints](#api-endpoints)
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
@@ -155,6 +156,22 @@ model RefreshToken {
   @@index([token])
 }
 ```
+
+---
+
+## API Documentation
+
+This API includes interactive Swagger documentation. Once the server is running, access the documentation at:
+
+```
+http://localhost:3000/docs
+```
+
+The Swagger UI provides:
+- Interactive endpoint testing
+- Request/response schema details
+- Authentication flow documentation
+- Example requests and responses
 
 ---
 
@@ -608,7 +625,21 @@ auth-api/
 │   ├── app.ts                     # Express app setup and middleware
 │   ├── config/
 │   │   ├── database.ts            # Prisma client singleton
-│   │   └── redis.ts               # Redis client singleton
+│   │   ├── redis.ts               # Redis client singleton
+│   │   └── swagger.ts             # Swagger UI configuration
+│   ├── docs/
+│   │   ├── index.ts               # Documentation exports
+│   │   ├── swagger.ts             # OpenAPI specification
+│   │   ├── components/
+│   │   │   ├── index.ts           # Component aggregator
+│   │   │   ├── schemas.ts         # Request/response schemas
+│   │   │   ├── responses.ts       # Reusable response definitions
+│   │   │   └── securitySchemes.ts # Security scheme definitions
+│   │   └── paths/
+│   │       ├── index.ts           # Path aggregator
+│   │       ├── auth.ts            # Auth endpoint documentation
+│   │       ├── user.ts            # User endpoint documentation
+│   │       └── health.ts          # Health endpoint documentation
 │   ├── routes/
 │   │   └── api/
 │   │       ├── index.ts           # API route aggregator
