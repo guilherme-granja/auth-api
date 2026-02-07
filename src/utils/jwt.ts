@@ -1,5 +1,6 @@
-import jwt, { SignOptions, JwtPayload } from 'jsonwebtoken';
+import jwt, {SignOptions, JwtPayload, VerifyOptions} from 'jsonwebtoken';
 import {GeneratedToken} from "../dtos/jwt/GeneratedToken";
+
 export class JwtUtils {
     private static readonly DEFAULT_EXPIRES_IN_SECONDS = 3600;
 
@@ -37,9 +38,12 @@ export class JwtUtils {
 
     static generateAccessToken(payload: { sub: string }): GeneratedToken {
         const options: SignOptions = {
+            algorithm: 'HS256',
             expiresIn: this.getExpiresInSeconds(),
+            issuer: 'api.auth.com',
+            audience: 'auth-app',
         };
-        const expiresInSeconds = this.getExpiresInSeconds();
+
         const expiresAt = this.calculateExpiresAt();
 
         const token = jwt.sign(payload, this.getSecret(), options);
@@ -51,7 +55,13 @@ export class JwtUtils {
     }
 
     static verifyToken(token: string): JwtPayload {
-        const decoded = jwt.verify(token, this.getSecret());
+        const options: VerifyOptions = {
+            algorithms: ['HS256'],
+            issuer: 'api.auth.com',
+            audience: 'auth-app',
+        };
+
+        const decoded = jwt.verify(token, this.getSecret(), options);
 
         if (typeof decoded === 'string') {
             throw new Error('Invalid token format');

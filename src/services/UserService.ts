@@ -73,6 +73,6 @@ export class UserService {
         // Invalidate all sessions (force re-login)
         await this.userRepository.update(user.id, { password: hashedPassword });
         await this.userRepository.clearResetToken(user.id);
-        await this.refreshTokenRepository.deleteAllByUserId(user.id);
+        await this.refreshTokenRepository.revokeAllUserTokens(user.id);
     }
 }

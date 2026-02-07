@@ -17,10 +17,14 @@ export class RefreshTokenUtils {
         const now = new Date();
         const days = this.getExpiresInDays();
 
-        return new Date(now.getTime() + days * 24 * 60 * 60 * 100);
+        return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     }
 
     static isExpired(expiresAt: Date): boolean {
         return new Date() > expiresAt;
+    }
+
+    static isRevoked(revoked: boolean): boolean {
+        return revoked;
     }
 }

@@ -12,6 +12,7 @@ import {RefreshTokenRepository} from "../repositories/RefreshTokenRepository";
 import {RefreshTokenDTO} from "../dtos/refreshToken/RefreshTokenDTO";
 import {RefreshTokenExpiredException} from "../exceptions/refreshTokens/RefreshTokenExpiredException";
 import {LogoutDTO} from "../dtos/auth/LogoutDTO";
+import {RefreshTokenRevokedException} from "../exceptions/refreshTokens/RefreshTokenRevokedException";
 
 export class AuthService {
     private userRepository: UserRepository;
@@ -73,12 +74,17 @@ export class AuthService {
             throw new InvalidCredentialsException();
         }
 
+        if (RefreshTokenUtils.isRevoked(storedToken.revoked)) {
+            await this.refreshTokenRepository.revokeAllUserTokens(storedToken.userId);
+            throw new RefreshTokenRevokedException();
+        }
+
         if (RefreshTokenUtils.isExpired(storedToken.expiresAt)) {
-            await this.refreshTokenRepository.deleteByToken(dto.refreshToken);
+            await this.refreshTokenRepository.revokeById(storedToken.id);
             throw new RefreshTokenExpiredException();
         }
 
-        await this.refreshTokenRepository.deleteByToken(dto.refreshToken);
+        await this.refreshTokenRepository.revokeById(storedToken.id);
 
         return this.generateTokenPair(storedToken.userId, metadata);
     }
@@ -87,12 +93,12 @@ export class AuthService {
         const storedToken = await this.refreshTokenRepository.findByToken(dto.refreshToken);
 
         if (storedToken) {
-            await this.refreshTokenRepository.deleteByToken(dto.refreshToken);
+            await this.refreshTokenRepository.revokeById(storedToken.id);
         }
     }
 
     async logoutAll(userId: string): Promise<void> {
-        await this.refreshTokenRepository.deleteAllByUserId(userId);
+        await this.refreshTokenRepository.revokeAllUserTokens(userId);
     }
 
     private async rehashPasswordIfNeeded(

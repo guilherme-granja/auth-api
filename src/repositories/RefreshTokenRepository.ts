@@ -14,36 +14,23 @@ export class RefreshTokenRepository {
         });
     }
 
-    async deleteByToken(token: string): Promise<void> {
-        await prisma.refreshToken.delete({
-            where: { token }
-        });
-    }
-
-    async deleteAllByUserId(userId: string): Promise<void> {
-        await prisma.refreshToken.deleteMany({
-            where: { userId }
-        });
-    }
-
-    async deleteExpired(): Promise<number> {
-        const result = await prisma.refreshToken.deleteMany({
-            where: {
-                expiresAt: { lt: new Date() },
+    async revokeAllUserTokens(userId: string): Promise<void> {
+        await prisma.refreshToken.updateMany({
+            where: { userId, revoked: false },
+            data: {
+                revoked: true,
+                revokedAt: new Date(),
             }
         });
-
-        return result.count;
     }
 
-    async countByUserId(userId: string): Promise<number> {
-        return await prisma.refreshToken.count({
-            where: {
-                userId,
-                expiresAt: {
-                    gt: new Date(),  // Only count non-expired
-                },
-            },
+    async revokeById(id: string): Promise<void> {
+        await prisma.refreshToken.update({
+            where: { id },
+            data: {
+                revoked: true,
+                revokedAt: new Date(),
+            }
         });
     }
 }
