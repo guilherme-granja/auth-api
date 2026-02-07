@@ -4,7 +4,7 @@ import { CleanupTokensJob } from './CleanupTokensJob';
 export function startScheduledJobs(): void {
   console.log('📅 Starting scheduled jobs...');
 
-  cron.schedule('0 2 * * *', async () => {
+  cron.schedule('0 2 * * *', async (): Promise<void> => {
     console.log('🔄 Running token cleanup job...');
 
     try {
