@@ -1,6 +1,13 @@
 // src/config/redis.ts
 import { createClient } from 'redis';
 
+/**
+ * REVIEW: avoid using any, try to use the type provided by the library
+ * for example
+ *
+ * private static instance: RedisClient = null;
+ * private static connecting: Promise<RedisClient> | null = null;
+ */
 class RedisClientManager {
   private static instance: any = null;
   private static connecting: Promise<any> | null = null;
